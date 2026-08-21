@@ -1,1 +1,1 @@
-Fix crash when opening fullscreen
+Update to the newest Litematica version
