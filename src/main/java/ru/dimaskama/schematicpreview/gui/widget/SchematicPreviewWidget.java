@@ -1,14 +1,14 @@
 package ru.dimaskama.schematicpreview.gui.widget;
 
-import com.mojang.blaze3d.GpuFormat;
+import com.mojang.renderpearl.api.GpuFormat;
 import com.mojang.blaze3d.ProjectionType;
-import com.mojang.blaze3d.buffers.GpuBuffer;
+import com.mojang.renderpearl.api.buffers.GpuBuffer;
 import com.mojang.blaze3d.buffers.Std140Builder;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.pipeline.TextureTarget;
 import com.mojang.blaze3d.platform.Lighting;
 import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.blaze3d.textures.FilterMode;
+import com.mojang.renderpearl.api.textures.FilterMode;
 import com.mojang.blaze3d.vertex.PoseStack;
 import fi.dy.masa.litematica.schematic.LitematicaSchematic;
 import fi.dy.masa.malilib.gui.widgets.WidgetBase;
@@ -32,6 +32,7 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 import org.joml.*;
+import org.lwjgl.sdl.SDLMouse;
 import org.lwjgl.system.MemoryStack;
 import ru.dimaskama.schematicpreview.SchematicPreview;
 import ru.dimaskama.schematicpreview.SchematicPreviewConfigs;
@@ -182,7 +183,7 @@ public class SchematicPreviewWidget extends WidgetBase {
         int scaledWidth = (int) (scale * width);
         int scaledHeight = (int) (scale * height);
         if (framebuffer == null) {
-            framebuffer = new TextureTarget("SchematicPreview", scaledWidth, scaledHeight, true, GpuFormat.RGBA8_UNORM);
+            framebuffer = new TextureTarget("SchematicPreview", scaledWidth, scaledHeight, GpuFormat.RGBA8_UNORM, GpuFormat.D32_FLOAT);
             return true;
         }
         if (framebuffer.width != scaledWidth || framebuffer.height != scaledHeight) {
@@ -283,7 +284,7 @@ public class SchematicPreviewWidget extends WidgetBase {
                     return true;
                 }
             }
-            if (click.button() == 0) {
+            if (click.button() == SDLMouse.SDL_BUTTON_LEFT) {
                 lastMouseX = (int) click.x();
                 lastMouseY = (int) click.y();
                 mouseDragging = true;
@@ -295,7 +296,7 @@ public class SchematicPreviewWidget extends WidgetBase {
 
     @Override
     public void onMouseReleasedImpl(MouseButtonEvent click) {
-        if (nonStatic && click.button() == 0) {
+        if (nonStatic && click.button() == SDLMouse.SDL_BUTTON_LEFT) {
             mouseDragging = false;
         }
     }
@@ -459,10 +460,10 @@ public class SchematicPreviewWidget extends WidgetBase {
                 int floorZ = Mth.floor(lastRenderPos.z);
                 ByteBuffer byteBuffer = Std140Builder.onStack(memoryStack, GlobalSettingsUniform.UBO_SIZE)
                         .putIVec3(floorX, floorY, floorZ)
-                        .putVec3(floorX - lastRenderPos.x, floorY - lastRenderPos.y, floorZ - lastRenderPos.z)
-                        .putVec2(Minecraft.getInstance().getWindow().getWidth(), Minecraft.getInstance().getWindow().getHeight())
                         .putFloat(1.0F)
+                        .putVec3(floorX - lastRenderPos.x, floorY - lastRenderPos.y, floorZ - lastRenderPos.z)
                         .putFloat(0.0F)
+                        .putVec2(Minecraft.getInstance().getWindow().getWidth(), Minecraft.getInstance().getWindow().getHeight())
                         .putInt(0)
                         .putInt(0)
                         .get();

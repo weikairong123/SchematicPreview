@@ -7,7 +7,7 @@ import fi.dy.masa.malilib.render.GuiContext;
 import fi.dy.masa.malilib.render.RenderUtils;
 import fi.dy.masa.malilib.util.StringUtils;
 import org.jetbrains.annotations.Nullable;
-import org.lwjgl.glfw.GLFW;
+import org.lwjgl.sdl.SDLMouse;
 import ru.dimaskama.schematicpreview.SchematicPreview;
 
 import java.util.Comparator;
@@ -125,7 +125,7 @@ public class GuiBlockSelect extends GuiBase {
 
     @Override
     public boolean onMouseClicked(MouseButtonEvent click, boolean doubleClick) {
-        if (click.button() == GLFW.GLFW_MOUSE_BUTTON_1) {
+        if (click.button() == SDLMouse.SDL_BUTTON_LEFT) {
             int hoveredBlockIndex = getBlockIndexAt(click.x(), click.y());
             if (hoveredBlockIndex != -1) {
                 selectBlock(hoveredBlockIndex);

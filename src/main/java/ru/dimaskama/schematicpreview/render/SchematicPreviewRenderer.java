@@ -1,16 +1,16 @@
 package ru.dimaskama.schematicpreview.render;
 
-import com.mojang.blaze3d.IndexType;
-import com.mojang.blaze3d.PrimitiveTopology;
-import com.mojang.blaze3d.buffers.GpuBuffer;
-import com.mojang.blaze3d.buffers.GpuBufferSlice;
+import com.mojang.renderpearl.api.pipeline.IndexType;
+import com.mojang.renderpearl.api.pipeline.PrimitiveTopology;
+import com.mojang.renderpearl.api.buffers.GpuBuffer;
+import com.mojang.renderpearl.api.buffers.GpuBufferSlice;
 import com.mojang.blaze3d.pipeline.RenderTarget;
-import com.mojang.blaze3d.systems.RenderPass;
+import com.mojang.renderpearl.api.commands.RenderPass;
 import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.blaze3d.textures.AddressMode;
-import com.mojang.blaze3d.textures.FilterMode;
-import com.mojang.blaze3d.textures.GpuSampler;
-import com.mojang.blaze3d.textures.GpuTextureView;
+import com.mojang.renderpearl.api.textures.AddressMode;
+import com.mojang.renderpearl.api.textures.FilterMode;
+import com.mojang.renderpearl.api.textures.GpuSampler;
+import com.mojang.renderpearl.api.textures.GpuTextureView;
 import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.ByteBufferBuilder;
 import com.mojang.blaze3d.vertex.MeshData;
@@ -19,9 +19,8 @@ import com.mojang.blaze3d.vertex.VertexSorting;
 import fi.dy.masa.litematica.render.schematic.BlockModelRendererSchematic;
 import fi.dy.masa.litematica.render.schematic.IBlockOutputSchematic;
 import fi.dy.masa.litematica.schematic.LitematicaSchematic;
-import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.renderer.DynamicUniforms;
+import net.minecraft.client.renderer.DynamicGpuData;
 import net.minecraft.client.renderer.SubmitNodeStorage;
 import net.minecraft.client.renderer.block.FluidRenderer;
 import net.minecraft.client.renderer.block.dispatch.BlockStateModel;
@@ -162,19 +161,16 @@ public class SchematicPreviewRenderer implements AutoCloseable {
         }
     }
 
-    private ChunkSectionsToRender prepareChunks() {
+    private ChunkSectionsToRender prepareChunks(GpuTextureView blockAtlas) {
         Iterator<ChunkEntry> chunkIterator = chunks.iterator();
-        EnumMap<ChunkSectionLayer, Int2ObjectOpenHashMap<List<RenderPass.Draw<GpuBufferSlice[]>>>> enumMap = new EnumMap<>(ChunkSectionLayer.class);
+        EnumMap<ChunkSectionLayer, List<RenderPass.Draw<GpuBufferSlice[]>>> drawsPerLayer = new EnumMap<>(ChunkSectionLayer.class);
         int maxIndices = 0;
 
         for (ChunkSectionLayer chunkSectionLayer : ChunkSectionLayer.values()) {
-            enumMap.put(chunkSectionLayer, new Int2ObjectOpenHashMap<>());
+            drawsPerLayer.put(chunkSectionLayer, new ArrayList<>());
         }
 
-        List<DynamicUniforms.ChunkSectionInfo> chunkSectionInfos = new ArrayList<>();
-        GpuTextureView blockAtlas = Minecraft.getInstance().getTextureManager().getTexture(TextureAtlas.LOCATION_BLOCKS).getTextureView();
-        int atlasWidth = blockAtlas.getWidth(0);
-        int atlasHeight = blockAtlas.getHeight(0);
+        List<DynamicGpuData.ChunkSectionInfo> chunkSectionInfos = new ArrayList<>();
 
         while (chunkIterator.hasNext()) {
             ChunkEntry chunk = chunkIterator.next();
@@ -199,14 +195,11 @@ public class SchematicPreviewRenderer implements AutoCloseable {
                 }
                 if (uniformIndex == -1) {
                     uniformIndex = chunkSectionInfos.size();
-                    chunkSectionInfos.add(new DynamicUniforms.ChunkSectionInfo(
-                            RenderSystem.getModelViewMatrixCopy(),
+                    chunkSectionInfos.add(new DynamicGpuData.ChunkSectionInfo(
                             chunk.pos().getMinBlockX(),
                             0,
                             chunk.pos().getMinBlockZ(),
-                            1.0F,
-                            atlasWidth,
-                            atlasHeight
+                            1.0F
                     ));
                 }
 
@@ -224,8 +217,7 @@ public class SchematicPreviewRenderer implements AutoCloseable {
                 }
 
                 int finalUniformIndex = uniformIndex;
-                enumMap.get(layer)
-                        .computeIfAbsent(0, ignored -> new ArrayList<>())
+                drawsPerLayer.get(layer)
                         .add(new RenderPass.Draw<>(
                                 0,
                                 sectionBuffers.vertexBuffer(),
@@ -234,15 +226,28 @@ public class SchematicPreviewRenderer implements AutoCloseable {
                                 0,
                                 sectionBuffers.indexCount(),
                                 0,
-                                (gpuBufferSlices, uniformUploader) -> uniformUploader.upload("ChunkSection", gpuBufferSlices[finalUniformIndex])
+                                (gpuBufferSlices, uniformUploader) -> uniformUploader.setUniform("ChunkSection", gpuBufferSlices[finalUniformIndex])
                         ));
             }
         }
 
-        GpuBufferSlice[] gpuBufferSlices = RenderSystem.getDynamicUniforms().writeChunkSections(
-                chunkSectionInfos.toArray(new DynamicUniforms.ChunkSectionInfo[0])
+        // Translucent chunks are sorted back to front, so the furthest one has to be drawn first
+        drawsPerLayer.computeIfPresent(ChunkSectionLayer.TRANSLUCENT, (layer, draws) -> draws.reversed());
+
+        GpuBufferSlice terrainTransform = RenderSystem.getDynamicUniforms().writeTerrainTransform(
+                RenderSystem.getModelViewMatrixCopy(),
+                blockAtlas.getWidth(0),
+                blockAtlas.getHeight(0)
         );
-        return new ChunkSectionsToRender(blockAtlas, enumMap, maxIndices, gpuBufferSlices);
+        GpuBufferSlice[] gpuBufferSlices = RenderSystem.getDynamicUniforms().writeChunkSections(
+                chunkSectionInfos.toArray(new DynamicGpuData.ChunkSectionInfo[0])
+        );
+        if (maxIndices != 0) {
+            // ChunkSectionsToRender only reads the already-sized buffer, and the shared one is not
+            // resized again between the level pass and the GUI pass, so grow it here
+            RenderSystem.getSequentialBuffer(PrimitiveTopology.QUADS).getBuffer(maxIndices);
+        }
+        return new ChunkSectionsToRender.DrawSeparate(terrainTransform, drawsPerLayer, maxIndices, gpuBufferSlices);
     }
 
     public void renderBlocks() {
@@ -253,18 +258,13 @@ public class SchematicPreviewRenderer implements AutoCloseable {
             textureSampler = RenderSystem.getDevice()
                     .createSampler(AddressMode.CLAMP_TO_EDGE, AddressMode.CLAMP_TO_EDGE, FilterMode.LINEAR, FilterMode.LINEAR, 1, OptionalDouble.empty());
         }
-        ChunkSectionsToRender chunkSectionsToRender = prepareChunks();
-        renderChunkSectionsLayer(chunkSectionsToRender, ChunkSectionLayerGroup.OPAQUE);
-        renderChunkSectionsLayer(chunkSectionsToRender, ChunkSectionLayerGroup.TRANSLUCENT);
+        GpuTextureView blockAtlas = Minecraft.getInstance().getTextureManager().getTexture(TextureAtlas.LOCATION_BLOCKS).getTextureView();
+        ChunkSectionsToRender chunkSectionsToRender = prepareChunks(blockAtlas);
+        renderChunkSectionsLayer(chunkSectionsToRender, blockAtlas, ChunkSectionLayerGroup.OPAQUE);
+        renderChunkSectionsLayer(chunkSectionsToRender, blockAtlas, ChunkSectionLayerGroup.TRANSLUCENT);
     }
 
-    private void renderChunkSectionsLayer(ChunkSectionsToRender chunks, ChunkSectionLayerGroup group) {
-        RenderSystem.AutoStorageIndexBuffer autoStorageIndexBuffer = RenderSystem.getSequentialBuffer(PrimitiveTopology.QUADS);
-        GpuBuffer sharedIndexBuffer = chunks.maxIndicesRequired() == 0 ? null : autoStorageIndexBuffer.getBuffer(chunks.maxIndicesRequired());
-        IndexType sharedIndexType = chunks.maxIndicesRequired() == 0 ? null : autoStorageIndexBuffer.type();
-        Minecraft minecraft = Minecraft.getInstance();
-        GpuSampler blockSampler = textureSampler;
-
+    private void renderChunkSectionsLayer(ChunkSectionsToRender chunks, GpuTextureView blockAtlas, ChunkSectionLayerGroup group) {
         try (RenderPass renderPass = RenderSystem.getDevice().createCommandEncoder().createRenderPass(
                 () -> "SchematicPreview " + group.label(),
                 target.getColorTextureView(),
@@ -273,27 +273,7 @@ public class SchematicPreviewRenderer implements AutoCloseable {
                 OptionalDouble.empty()
         )) {
             RenderSystem.bindDefaultUniforms(renderPass);
-            renderPass.bindTexture(
-                    "Sampler2",
-                    minecraft.gameRenderer.lightmap(),
-                    blockSampler
-            );
-
-            for (ChunkSectionLayer layer : group.layers()) {
-                Int2ObjectOpenHashMap<List<RenderPass.Draw<GpuBufferSlice[]>>> drawGroups = chunks.drawGroupsPerLayer().get(layer);
-                if (drawGroups == null) {
-                    continue;
-                }
-                renderPass.setPipeline(layer.pipeline());
-                renderPass.bindTexture("Sampler0", chunks.textureView(), blockSampler);
-                for (List<RenderPass.Draw<GpuBufferSlice[]>> draws : drawGroups.values()) {
-                    if (draws.isEmpty()) {
-                        continue;
-                    }
-                    List<RenderPass.Draw<GpuBufferSlice[]>> drawList = layer == ChunkSectionLayer.TRANSLUCENT ? draws.reversed() : draws;
-                    renderPass.drawMultipleIndexed(drawList, sharedIndexBuffer, sharedIndexType, List.of("ChunkSection"), chunks.chunkSectionInfos());
-                }
-            }
+            chunks.renderGroup(group, renderPass, textureSampler, blockAtlas, false);
         }
     }
 
@@ -320,15 +300,18 @@ public class SchematicPreviewRenderer implements AutoCloseable {
                 }
             }
         });
-        GpuTextureView prevColorOverride = RenderSystem.outputColorTextureOverride;
-        GpuTextureView prevDepthOverride = RenderSystem.outputDepthTextureOverride;
-        RenderSystem.outputColorTextureOverride = target.getColorTextureView();
-        RenderSystem.outputDepthTextureOverride = target.getDepthTextureView();
-        try {
-            renderDispatcher.renderAllFeatures(submitNodeStorage);
-        } finally {
-            RenderSystem.outputColorTextureOverride = prevColorOverride;
-            RenderSystem.outputDepthTextureOverride = prevDepthOverride;
+        try (
+                FeatureRenderDispatcher.PreparedFrame frame = renderDispatcher.prepareFrame(submitNodeStorage);
+                RenderPass renderPass = RenderSystem.getDevice().createCommandEncoder().createRenderPass(
+                        () -> "SchematicPreview block entities",
+                        target.getColorTextureView(),
+                        Optional.empty(),
+                        target.getDepthTextureView(),
+                        OptionalDouble.empty()
+                )
+        ) {
+            RenderSystem.bindDefaultUniforms(renderPass);
+            FeatureRenderDispatcher.renderAllFeatures(renderPass, frame);
         }
     }
 
@@ -439,7 +422,7 @@ public class SchematicPreviewRenderer implements AutoCloseable {
         private BufferBuilder getBuilderByLayer(ChunkSectionLayer layer) {
             return builderCache.computeIfAbsent(layer, ignored -> new BufferBuilder(
                     getAllocatorByLayer(layer),
-                    layer.pipeline().getPrimitiveTopology(),
+                    layer.pipeline(false).getPrimitiveTopology(),
                     layer.vertexFormat()
             ));
         }

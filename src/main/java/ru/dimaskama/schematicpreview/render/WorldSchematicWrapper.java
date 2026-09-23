@@ -33,7 +33,6 @@ import net.minecraft.world.entity.boss.enderdragon.EnderDragonPart;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.flag.FeatureFlagSet;
 import net.minecraft.world.flag.FeatureFlags;
-import net.minecraft.world.item.alchemy.PotionBrewing;
 import net.minecraft.world.item.crafting.RecipeAccess;
 import net.minecraft.world.level.*;
 import net.minecraft.world.level.biome.Biome;
@@ -41,7 +40,6 @@ import net.minecraft.world.level.biome.Biomes;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BlockEntity;
-import net.minecraft.world.level.block.entity.FuelValues;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.border.WorldBorder;
 import net.minecraft.world.level.chunk.*;
@@ -260,16 +258,6 @@ public class WorldSchematicWrapper extends Level implements LightChunkGetter, Bl
     @Override
     public EnvironmentAttributeSystem environmentAttributes() {
         return EnvironmentAttributeSystem.builder().addDefaultLayers(this).build();
-    }
-
-    @Override
-    public PotionBrewing potionBrewing() {
-        return null;
-    }
-
-    @Override
-    public FuelValues fuelValues() {
-        return null;
     }
 
     public Map<BlockPos, Supplier<BlockEntity>> getBlockEntities() {

@@ -10,7 +10,7 @@ import fi.dy.masa.malilib.render.GuiContext;
 import fi.dy.masa.malilib.render.RenderUtils;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Matrix3x2fStack;
-import org.lwjgl.glfw.GLFW;
+import org.lwjgl.sdl.SDLMouse;
 import ru.dimaskama.schematicpreview.ItemIconState;
 import ru.dimaskama.schematicpreview.SchematicPreview;
 import ru.dimaskama.schematicpreview.SchematicPreviewCache;
@@ -92,7 +92,7 @@ public class CustomDirectoryEntry extends WidgetDirectoryEntry {
 
     @Override
     protected boolean onMouseClickedImpl(MouseButtonEvent click, boolean doubleClick) {
-        if (click.button() == GLFW.GLFW_MOUSE_BUTTON_2) {
+        if (click.button() == SDLMouse.SDL_BUTTON_RIGHT) {
             if (canEditIcon((int) click.x(), (int) click.y())) {
                 String key = getCacheKey();
                 Minecraft client = Minecraft.getInstance();
