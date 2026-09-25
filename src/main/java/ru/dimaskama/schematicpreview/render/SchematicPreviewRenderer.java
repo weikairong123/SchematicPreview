@@ -56,8 +56,8 @@ import java.util.OptionalDouble;
 import java.util.OptionalInt;
 
 public class SchematicPreviewRenderer implements AutoCloseable {
-
-    private final WorldSchematicWrapper world;
+    // 修改：增加 @Nullable，主菜单场景会为 null
+    private final @Nullable WorldSchematicWrapper world;
     private final FluidRenderer fluidRenderer;
     private final ModelManager modelManager;
     private final BlockEntityRenderDispatcher blockEntityRenderManager;
@@ -74,7 +74,15 @@ public class SchematicPreviewRenderer implements AutoCloseable {
     private GpuSampler textureSampler;
 
     public SchematicPreviewRenderer(Minecraft mc) {
-        world = new WorldSchematicWrapper(mc);
+        WorldSchematicWrapper tmpWorld;
+        try {
+            tmpWorld = new WorldSchematicWrapper(mc);
+        } catch (WorldSchematicWrapper.SkippedPreviewException e) {
+            // 主菜单 mc.level == null，无法创建预览环境，置为 null
+            tmpWorld = null;
+        }
+        this.world = tmpWorld;
+
         modelManager = mc.getModelManager();
         fluidRenderer = new FluidRenderer(modelManager.getFluidStateModelSet());
         blockEntityRenderManager = mc.getBlockEntityRenderDispatcher();
@@ -94,12 +102,14 @@ public class SchematicPreviewRenderer implements AutoCloseable {
 
     public void setup(LitematicaSchematic schematic) {
         close();
+        // 主菜单无可用 world，直接跳过预览全部逻辑
+        if (world == null) {
+            return;
+        }
         world.setSchematic(schematic);
-
         int height = world.getSize().getY();
         int chunksX = world.getSize().getX() >>> 4;
         int chunksZ = world.getSize().getZ() >>> 4;
-
         for (int chunkX = 0; chunkX <= chunksX; chunkX++) {
             for (int chunkZ = 0; chunkZ <= chunksZ; chunkZ++) {
                 ChunkPos chunkPos = new ChunkPos(chunkX, chunkZ);
@@ -113,13 +123,11 @@ public class SchematicPreviewRenderer implements AutoCloseable {
                     int chunkStartZ = chunkPos.getMinBlockZ();
                     int chunkEndX = chunkStartX + 16;
                     int chunkEndZ = chunkStartZ + 16;
-
                     IBlockOutputSchematic blockOutput = (bx, by, bz, quad, inst) -> {
                         ChunkSectionLayer layer = quad.materialInfo().layer();
                         BufferBuilder builder = chunk.getBuilderByLayer(layer);
                         builder.putBlockBakedQuad(bx, by, bz, quad, inst);
                     };
-
                     for (int y = 0; y < height; y++) {
                         for (int z = chunkStartZ; z < chunkEndZ; z++) {
                             for (int x = chunkStartX; x < chunkEndX; x++) {
@@ -133,7 +141,6 @@ public class SchematicPreviewRenderer implements AutoCloseable {
                                 boolean renderFluid = !fluid.isEmpty();
                                 boolean renderBlock = state.getRenderShape() == RenderShape.MODEL;
                                 Vec3 offset = new Vec3(x & 0xF, y, z & 0xF);
-
                                 if (renderFluid) {
                                     FluidRenderer.Output fluidOutput = chunk::getBuilderByLayer;
                                     fluidRenderer.tesselate(world, worldPos, fluidOutput, state, fluid);
@@ -178,16 +185,13 @@ public class SchematicPreviewRenderer implements AutoCloseable {
         Iterator<ChunkEntry> chunkIterator = chunks.iterator();
         EnumMap<ChunkSectionLayer, Int2ObjectOpenHashMap<List<com.mojang.blaze3d.systems.RenderPass.Draw<GpuBufferSlice[]>>>> enumMap = new EnumMap<>(ChunkSectionLayer.class);
         int maxIndices = 0;
-
         for (ChunkSectionLayer chunkSectionLayer : ChunkSectionLayer.values()) {
             enumMap.put(chunkSectionLayer, new Int2ObjectOpenHashMap<>());
         }
-
         List<DynamicUniforms.ChunkSectionInfo> chunkSectionInfos = new ArrayList<>();
         GpuTextureView blockAtlas = Minecraft.getInstance().getTextureManager().getTexture(TextureAtlas.LOCATION_BLOCKS).getTextureView();
         int atlasWidth = blockAtlas.getWidth(0);
         int atlasHeight = blockAtlas.getHeight(0);
-
         while (chunkIterator.hasNext()) {
             ChunkEntry chunk = chunkIterator.next();
             if (!chunk.future.isDone()) {
@@ -199,7 +203,6 @@ public class SchematicPreviewRenderer implements AutoCloseable {
             }
             VertexSorting vertexSorter = VertexSorting.byDistance(pos.x - chunk.pos().getMinBlockX(), pos.y, pos.z - chunk.pos().getMinBlockZ());
             int uniformIndex = -1;
-
             for (ChunkSectionLayer layer : ChunkSectionLayer.values()) {
                 built.uploadBuffer(layer, vertexSorter);
                 if (updated) {
@@ -221,7 +224,6 @@ public class SchematicPreviewRenderer implements AutoCloseable {
                             atlasHeight
                     ));
                 }
-
                 GpuBuffer indexBuffer;
                 VertexFormat.IndexType indexType;
                 if (sectionBuffers.indexBuffer() == null) {
@@ -234,7 +236,6 @@ public class SchematicPreviewRenderer implements AutoCloseable {
                     indexBuffer = sectionBuffers.indexBuffer();
                     indexType = sectionBuffers.indexType();
                 }
-
                 int finalUniformIndex = uniformIndex;
                 enumMap.get(layer)
                         .computeIfAbsent(0, ignored -> new ArrayList<>())
@@ -250,7 +251,6 @@ public class SchematicPreviewRenderer implements AutoCloseable {
                         ));
             }
         }
-
         GpuBufferSlice[] gpuBufferSlices = RenderSystem.getDynamicUniforms().writeChunkSections(
                 chunkSectionInfos.toArray(new DynamicUniforms.ChunkSectionInfo[0])
         );
@@ -258,7 +258,7 @@ public class SchematicPreviewRenderer implements AutoCloseable {
     }
 
     public void renderBlocks() {
-        if (target == null) {
+        if (target == null || world == null) {
             return;
         }
         if (textureSampler == null) {
@@ -276,7 +276,6 @@ public class SchematicPreviewRenderer implements AutoCloseable {
         VertexFormat.IndexType sharedIndexType = chunks.maxIndicesRequired() == 0 ? null : autoStorageIndexBuffer.type();
         Minecraft minecraft = Minecraft.getInstance();
         GpuSampler blockSampler = textureSampler;
-
         try (RenderPass renderPass = RenderSystem.getDevice().createCommandEncoder().createRenderPass(
                 () -> "SchematicPreview " + group.label(),
                 target.getColorTextureView(),
@@ -290,7 +289,6 @@ public class SchematicPreviewRenderer implements AutoCloseable {
                     minecraft.gameRenderer.lightmap(),
                     blockSampler
             );
-
             for (ChunkSectionLayer layer : group.layers()) {
                 Int2ObjectOpenHashMap<List<RenderPass.Draw<GpuBufferSlice[]>>> drawGroups = chunks.drawGroupsPerLayer().get(layer);
                 if (drawGroups == null) {
@@ -311,7 +309,7 @@ public class SchematicPreviewRenderer implements AutoCloseable {
 
     @SuppressWarnings({"rawtypes", "unchecked"})
     public void renderBlockEntities(PoseStack stack, float tickDelta) {
-        if (getBuiltChunksCount() != chunks.size()) {
+        if (world == null || getBuiltChunksCount() != chunks.size()) {
             return;
         }
         customVertexConsumerProvider.setFramebuffer(target);
@@ -368,7 +366,6 @@ public class SchematicPreviewRenderer implements AutoCloseable {
             int indexCount,
             VertexFormat.IndexType indexType
     ) implements AutoCloseable {
-
         @Override
         public void close() {
             vertexBuffer.close();
@@ -385,7 +382,6 @@ public class SchematicPreviewRenderer implements AutoCloseable {
             Map<ChunkSectionLayer, MeshData.SortState> sortStates,
             Map<ChunkSectionLayer, SectionBuffers> buffers
     ) implements AutoCloseable {
-
         private BuiltChunk() {
             this(new HashMap<>(), new HashMap<>(), new HashMap<>(), new HashMap<>(), new HashMap<>());
         }
@@ -461,5 +457,4 @@ public class SchematicPreviewRenderer implements AutoCloseable {
             buffers.values().forEach(SectionBuffers::close);
         }
     }
-
 }

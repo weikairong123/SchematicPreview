@@ -42,7 +42,6 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.FuelValues;
-import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.border.WorldBorder;
 import net.minecraft.world.level.chunk.*;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
@@ -74,6 +73,21 @@ import java.util.function.Supplier;
 
 public class WorldSchematicWrapper extends Level implements LightChunkGetter, BlockAndTintGetter {
 
+    // 自定义标记异常：仅用于通知上层“当前无世界，跳过预览”
+    public static class SkippedPreviewException extends RuntimeException {
+        public SkippedPreviewException(String message) {
+            super(message);
+        }
+    }
+
+    // 静态校验：mc.level为null直接抛异常，阻止进入super构造
+    private static Minecraft checkLevelNonNull(Minecraft mc) {
+        if (mc.level == null) {
+            throw new SkippedPreviewException("Cannot create schematic preview: mc.level is null (main menu)");
+        }
+        return mc;
+    }
+
     private final LevelLightEngine lightingProvider = new FakeLightingProvider(this);
     private final FakeChunkManager fakeChunkManager = new FakeChunkManager();
     private final WorldBorder worldBorder = new WorldBorder();
@@ -86,12 +100,13 @@ public class WorldSchematicWrapper extends Level implements LightChunkGetter, Bl
     private BlockState[] blocksData;
     private Map<BlockPos, Supplier<BlockEntity>> blockEntities;
 
+    // 【重要】构造保持 public，参数不变，不修改访问权限，兼容Mixin/反射注入
     public WorldSchematicWrapper(Minecraft mc) {
         super(
                 new ClientLevel.ClientLevelData(Difficulty.PEACEFUL, false, true),
                 Level.OVERWORLD,
-                mc.level.registryAccess(),
-                mc.level.registryAccess().lookupOrThrow(Registries.DIMENSION_TYPE).getOrThrow(BuiltinDimensionTypes.OVERWORLD),
+                checkLevelNonNull(mc).level.registryAccess(),
+                checkLevelNonNull(mc).level.registryAccess().lookupOrThrow(Registries.DIMENSION_TYPE).getOrThrow(BuiltinDimensionTypes.OVERWORLD),
                 true,
                 false,
                 0L,
@@ -202,7 +217,6 @@ public class WorldSchematicWrapper extends Level implements LightChunkGetter, Bl
 
     @Override
     public void setRespawnData(LevelData.RespawnData spawnPoint) {
-
     }
 
     @Override
@@ -234,7 +248,6 @@ public class WorldSchematicWrapper extends Level implements LightChunkGetter, Bl
 
     @Override
     public void destroyBlockProgress(int entityId, BlockPos pos, int progress) {
-
     }
 
     @Override
@@ -312,17 +325,14 @@ public class WorldSchematicWrapper extends Level implements LightChunkGetter, Bl
 
     @Override
     public void playSeededSound(@Nullable Entity source, double x, double y, double z, Holder<SoundEvent> sound, SoundSource category, float volume, float pitch, long seed) {
-
     }
 
     @Override
     public void playSeededSound(@Nullable Entity source, Entity entity, Holder<SoundEvent> sound, SoundSource category, float volume, float pitch, long seed) {
-
     }
 
     @Override
     public void explode(@Nullable Entity entity, @Nullable DamageSource damageSource, @Nullable ExplosionDamageCalculator behavior, double x, double y, double z, float power, boolean createFire, ExplosionInteraction explosionSourceType, ParticleOptions smallParticle, ParticleOptions largeParticle, WeightedList<ExplosionParticleInfo> blockParticles, Holder<SoundEvent> soundEvent) {
-
     }
 
     @Override
@@ -346,7 +356,8 @@ public class WorldSchematicWrapper extends Level implements LightChunkGetter, Bl
     }
 
     @Override
-    public void sendBlockUpdated(BlockPos pos, BlockState oldState, BlockState newState, int flags) {}
+    public void sendBlockUpdated(BlockPos pos, BlockState oldState, BlockState newState, int flags) {
+    }
 
     @Override
     public @org.jspecify.annotations.Nullable LightChunk getChunkForLighting(int i, int j) {
@@ -375,11 +386,11 @@ public class WorldSchematicWrapper extends Level implements LightChunkGetter, Bl
 
     @Override
     public void levelEvent(@Nullable Entity source, int eventId, BlockPos pos, int data) {
-
     }
 
     @Override
-    public void gameEvent(Holder<GameEvent> event, Vec3 emitterPos, GameEvent.Context emitter) {}
+    public void gameEvent(Holder<GameEvent> event, Vec3 emitterPos, GameEvent.Context emitter) {
+    }
 
     @Override
     public List<? extends Player> players() {
@@ -392,33 +403,43 @@ public class WorldSchematicWrapper extends Level implements LightChunkGetter, Bl
     }
 
     private static class FakeLightingProvider extends LevelLightEngine {
-
         private final LayerLightEventListener FULL_BRIGHT_VIEW = new LayerLightEventListener() {
             @Nullable
             @Override
             public DataLayer getDataLayerData(SectionPos pos) {
                 return null;
             }
+
             @Override
             public int getLightValue(BlockPos pos) {
                 return 15;
             }
+
             @Override
-            public void checkBlock(BlockPos pos) {}
+            public void checkBlock(BlockPos pos) {
+            }
+
             @Override
             public boolean hasLightWork() {
                 return false;
             }
+
             @Override
             public int runLightUpdates() {
                 return 15;
             }
+
             @Override
-            public void updateSectionStatus(SectionPos pos, boolean notReady) {}
+            public void updateSectionStatus(SectionPos pos, boolean notReady) {
+            }
+
             @Override
-            public void setLightEnabled(ChunkPos pos, boolean retainData) {}
+            public void setLightEnabled(ChunkPos pos, boolean retainData) {
+            }
+
             @Override
-            public void propagateLightSources(ChunkPos chunkPos) {}
+            public void propagateLightSources(ChunkPos chunkPos) {
+            }
         };
 
         public FakeLightingProvider(LightChunkGetter chunkProvider) {
@@ -429,11 +450,9 @@ public class WorldSchematicWrapper extends Level implements LightChunkGetter, Bl
         public LayerLightEventListener getLayerListener(LightLayer lightType) {
             return FULL_BRIGHT_VIEW;
         }
-
     }
 
     private class FakeChunkManager extends ChunkSource {
-
         private final Map<ChunkPos, FakeChunk> fakeChunks = new HashMap<>();
 
         @Nullable
@@ -445,7 +464,6 @@ public class WorldSchematicWrapper extends Level implements LightChunkGetter, Bl
 
         @Override
         public void tick(BooleanSupplier shouldKeepTicking, boolean tickChunks) {
-
         }
 
         @Override
@@ -467,11 +485,9 @@ public class WorldSchematicWrapper extends Level implements LightChunkGetter, Bl
         public BlockGetter getLevel() {
             return WorldSchematicWrapper.this;
         }
-
     }
 
     private class FakeChunk extends ChunkAccess {
-
         private final BlockPos chunkOrigin;
 
         public FakeChunk(ChunkPos pos) {
@@ -487,12 +503,10 @@ public class WorldSchematicWrapper extends Level implements LightChunkGetter, Bl
 
         @Override
         public void setBlockEntity(BlockEntity blockEntity) {
-
         }
 
         @Override
         public void addEntity(Entity entity) {
-
         }
 
         @Override
@@ -502,7 +516,6 @@ public class WorldSchematicWrapper extends Level implements LightChunkGetter, Bl
 
         @Override
         public void removeBlockEntity(BlockPos pos) {
-
         }
 
         @Nullable
@@ -547,7 +560,5 @@ public class WorldSchematicWrapper extends Level implements LightChunkGetter, Bl
         public FluidState getFluidState(BlockPos pos) {
             return WorldSchematicWrapper.this.getFluidState(chunkOrigin.offset(pos));
         }
-
     }
-
 }
