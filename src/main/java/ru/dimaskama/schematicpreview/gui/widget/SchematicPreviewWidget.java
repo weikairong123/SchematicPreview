@@ -114,7 +114,10 @@ public class SchematicPreviewWidget extends WidgetBase {
                         renderer.newSchematic(schematic);
                         resetCameraPos();
                     }
-                    if (!renderer.isBuildingTerrainOrStart()) {
+                    // ========== 新增：主菜单无世界时提示文字 ==========
+                    if (renderer == null) {
+                        context.centeredText(textRenderer, "Preview unavailable (enter world for preview)", centerX, centerY, 0xFFBBBBBB);
+                    } else if (!renderer.isBuildingTerrainOrStart()) {
                         renderPreviewAndOverlay(context, mc.getDeltaTracker().getGameTimeDeltaPartialTick(true));
                     } else {
                         context.centeredText(textRenderer, "Building terrain...", centerX, centerY, 0xFFBBBBBB);
@@ -258,7 +261,7 @@ public class SchematicPreviewWidget extends WidgetBase {
 
     private void mouseDragged(int deltaX, int deltaY) {
         float dX = ((float) deltaX / width) * 180.0F;
-        float dY = ((float) deltaY / height) * 180.0F;
+        float dY = ((float) deltaY / width) * 180.0F;
         if (freecam) {
             renderer.setRotation(renderer.getPitch() - dY, renderer.getYaw() - dX);
         } else {
@@ -303,7 +306,8 @@ public class SchematicPreviewWidget extends WidgetBase {
                     Vector3f move = getRotationVec(renderer.getPitch(), renderer.getYaw()).mul(am);
                     renderer.setPos(renderer.getX() + move.x, renderer.getY() + move.y, renderer.getZ() + move.z);
                 } else {
-                    distance = Mth.square(Math.max(0.0F, Mth.sqrt(distance) + am * 0.5F));
+                    // ========== 修复Math二义性 ==========
+                    distance = Mth.square(java.lang.Math.max(0.0F, Mth.sqrt(distance) + am * 0.5F));
                     updateRendererCameraPos();
                 }
             }
@@ -391,6 +395,15 @@ public class SchematicPreviewWidget extends WidgetBase {
         }
 
         private void newSchematic(LitematicaSchematic schematic) {
+            // ========== 关键修复：主菜单mc.level为null直接跳过，不创建渲染器，规避NPE崩溃 ==========
+            Minecraft mc = Minecraft.getInstance();
+            if (mc.level == null) {
+                if (renderer != null) {
+                    renderer.close();
+                    renderer = null;
+                }
+                return;
+            }
             try {
                 if (renderer == null) {
                     renderer = new SchematicPreviewRenderer(mc);
@@ -399,7 +412,7 @@ public class SchematicPreviewWidget extends WidgetBase {
                 schematicNew = true;
             } catch (Exception e) {
                 SchematicPreview.LOGGER.error("Failed to initialize schematic preview renderer", e);
-                if(renderer != null) {
+                if (renderer != null) {
                     renderer.close();
                     renderer = null;
                 }
@@ -415,7 +428,9 @@ public class SchematicPreviewWidget extends WidgetBase {
         }
 
         private void render(RenderTarget framebuffer, float tickDelta) {
-            if(renderer == null) return;
+            if (renderer == null) {
+                return;
+            }
             schematicNew = false;
             if (isBuildingTerrainOrStart()) {
                 return;
