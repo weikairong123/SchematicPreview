@@ -9,17 +9,12 @@ import net.minecraft.client.ClientClockManager;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.block.BlockAndTintGetter;
-import net.minecraft.core.BlockPos;
-import net.minecraft.core.Holder;
-import net.minecraft.core.HolderLookup;
-import net.minecraft.core.SectionPos;
-import net.minecraft.core.Vec3i;
-import net.minecraft.core.particles.ExplosionParticleInfo;
-import net.minecraft.core.particles.ParticleOptions;
+import net.minecraft.core.*;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceManager;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.ProblemReporter;
@@ -42,6 +37,7 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.FuelValues;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.border.WorldBorder;
 import net.minecraft.world.level.chunk.*;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
@@ -72,22 +68,6 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 
 public class WorldSchematicWrapper extends Level implements LightChunkGetter, BlockAndTintGetter {
-
-    // 自定义标记异常：仅用于通知上层“当前无世界，跳过预览”
-    public static class SkippedPreviewException extends RuntimeException {
-        public SkippedPreviewException(String message) {
-            super(message);
-        }
-    }
-
-    // 静态校验：mc.level为null直接抛异常，阻止进入super构造
-    private static Minecraft checkLevelNonNull(Minecraft mc) {
-        if (mc.level == null) {
-            throw new SkippedPreviewException("Cannot create schematic preview: mc.level is null (main menu)");
-        }
-        return mc;
-    }
-
     private final LevelLightEngine lightingProvider = new FakeLightingProvider(this);
     private final FakeChunkManager fakeChunkManager = new FakeChunkManager();
     private final WorldBorder worldBorder = new WorldBorder();
@@ -100,20 +80,39 @@ public class WorldSchematicWrapper extends Level implements LightChunkGetter, Bl
     private BlockState[] blocksData;
     private Map<BlockPos, Supplier<BlockEntity>> blockEntities;
 
-    // 【重要】构造保持 public，参数不变，不修改访问权限，兼容Mixin/反射注入
+    /**
+     * 官方映射：ResourceManager#createRegistryAccess()，Yarn别名createFullRegistryAccess
+     */
+    private static HolderLookup.Provider getRegistryAccess(Minecraft mc) {
+        if (mc.level != null) {
+            return mc.level.registryAccess();
+        }
+        ResourceManager rm = mc.getResourceManager();
+        // === 官方映射方法名，26.1+ official mapping ===
+        return rm.createRegistryAccess();
+    }
+
+    private static PalettedContainerFactory getPaletteFactory(Minecraft mc, HolderLookup.Provider registryAccess) {
+        if (mc.level != null) {
+            return mc.level.palettedContainerFactory();
+        }
+        return PalettedContainer.factory(registryAccess.lookupOrThrow(Registries.BLOCK_STATE));
+    }
+
     public WorldSchematicWrapper(Minecraft mc) {
         super(
                 new ClientLevel.ClientLevelData(Difficulty.PEACEFUL, false, true),
                 Level.OVERWORLD,
-                checkLevelNonNull(mc).level.registryAccess(),
-                checkLevelNonNull(mc).level.registryAccess().lookupOrThrow(Registries.DIMENSION_TYPE).getOrThrow(BuiltinDimensionTypes.OVERWORLD),
+                getRegistryAccess(mc),
+                getRegistryAccess(mc).lookupOrThrow(Registries.DIMENSION_TYPE).getOrThrow(BuiltinDimensionTypes.OVERWORLD),
                 true,
                 false,
                 0L,
                 0
         );
-        palettesFactory = mc.level.palettedContainerFactory();
-        biome = registryAccess().lookupOrThrow(Registries.BIOME).getValue(Biomes.PLAINS);
+        HolderLookup.Provider regAccess = getRegistryAccess(mc);
+        this.palettesFactory = getPaletteFactory(mc, regAccess);
+        this.biome = regAccess.lookupOrThrow(Registries.BIOME).getValue(Biomes.PLAINS);
     }
 
     public void setSchematic(LitematicaSchematic schematic) {
@@ -139,12 +138,13 @@ public class WorldSchematicWrapper extends Level implements LightChunkGetter, Bl
         size = areasEnd.subtract(areasOrigin);
         blocksData = new BlockState[size.getX() * size.getY() * size.getZ()];
         ImmutableMap.Builder<BlockPos, Supplier<BlockEntity>> blockEntitiesBuilder = ImmutableMap.builder();
+        final HolderLookup.Provider reg = registryAccess();
         areaPoses.forEach((region, areaPos) -> {
             BlockPos shift = areaPos.subtract(areasOrigin);
             schematic.getBlockEntityMapForRegion(region).forEach((relPos, nbtCompound) -> {
                 BlockPos pos = relPos.offset(shift);
                 blockEntitiesBuilder.put(pos, Suppliers.memoize(() -> {
-                    BlockEntity blockEntity = silentCreateTileFromNbt(pos, getBlockState(pos), DataConverterNbt.toVanillaCompound(nbtCompound), registryAccess());
+                    BlockEntity blockEntity = silentCreateTileFromNbt(pos, getBlockState(pos), DataConverterNbt.toVanillaCompound(nbtCompound), reg);
                     if (blockEntity != null) {
                         blockEntity.setLevel(this);
                     }
@@ -200,7 +200,7 @@ public class WorldSchematicWrapper extends Level implements LightChunkGetter, Bl
 
     @Override
     public Holder<Biome> getUncachedNoiseBiome(int biomeX, int biomeY, int biomeZ) {
-        return this.registryAccess().lookupOrThrow(Registries.BIOME).getOrThrow(Biomes.PLAINS);
+        return registryAccess().lookupOrThrow(Registries.BIOME).getOrThrow(Biomes.PLAINS);
     }
 
     @Override
