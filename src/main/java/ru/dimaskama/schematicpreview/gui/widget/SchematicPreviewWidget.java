@@ -35,7 +35,6 @@ import ru.dimaskama.schematicpreview.gui.GuiSchematicPreviewFullscreen;
 import ru.dimaskama.schematicpreview.render.PreviewsCache;
 import ru.dimaskama.schematicpreview.render.SchematicPreviewRenderer;
 
-import java.lang.Math;
 import java.nio.ByteBuffer;
 import java.nio.file.Path;
 import java.util.List;
@@ -44,7 +43,6 @@ import java.util.concurrent.CompletableFuture;
 
 // Extending malilib widget, but using vanilla inside
 public class SchematicPreviewWidget extends WidgetBase {
-
     private final Renderer renderer = new Renderer(mc);
     private final Runnable tickAction = this::tick;
     private final List<AbstractWidget> buttons;
@@ -69,24 +67,24 @@ public class SchematicPreviewWidget extends WidgetBase {
         this.nonStatic = nonStatic;
         buttons = nonStatic
                 ? List.of(new OnOffButton(
-                        6,
-                        6,
-                        Component.translatable("button.schematicpreview.fullscreen"),
-                        this::toggleFullscreen,
-                        SchematicPreview.id("fullscreen_on"),
-                        SchematicPreview.id("fullscreen_on_focused"),
-                        SchematicPreview.id("fullscreen_off"),
-                        SchematicPreview.id("fullscreen_off_focused")
-                ), new OnOffButton(
-                        6,
-                        6,
-                        Component.translatable("button.schematicpreview.freecam"),
-                        this::toggleFreecam,
-                        SchematicPreview.id("freecam_on"),
-                        SchematicPreview.id("freecam_on_focused"),
-                        SchematicPreview.id("freecam_off"),
-                        SchematicPreview.id("freecam_off_focused")
-                ))
+                6,
+                6,
+                Component.translatable("button.schematicpreview.fullscreen"),
+                this::toggleFullscreen,
+                SchematicPreview.id("fullscreen_on"),
+                SchematicPreview.id("fullscreen_on_focused"),
+                SchematicPreview.id("fullscreen_off"),
+                SchematicPreview.id("fullscreen_off_focused")
+        ), new OnOffButton(
+                6,
+                6,
+                Component.translatable("button.schematicpreview.freecam"),
+                this::toggleFreecam,
+                SchematicPreview.id("freecam_on"),
+                SchematicPreview.id("freecam_on_focused"),
+                SchematicPreview.id("freecam_off"),
+                SchematicPreview.id("freecam_off_focused")
+        ))
                 : List.of();
     }
 
@@ -255,7 +253,7 @@ public class SchematicPreviewWidget extends WidgetBase {
     }
 
     private int getMouseY() {
-        return (int) (mc.mouseHandler.ypos() * mc.getWindow().getGuiScaledHeight() / mc.getWindow().getScreenHeight());
+        return (int) (mc.mouseHandler.ypos() * mc.getWindow().getGuiScaledHeight() / mc.getWindow().getScreenWidth());
     }
 
     private void mouseDragged(int deltaX, int deltaY) {
@@ -334,7 +332,6 @@ public class SchematicPreviewWidget extends WidgetBase {
     }
 
     private static class Renderer {
-
         private final Minecraft mc;
         private final Quaternionf rotation = new Quaternionf();
         private final Vector3f lastRenderPos = new Vector3f();
@@ -394,28 +391,35 @@ public class SchematicPreviewWidget extends WidgetBase {
         }
 
         private void newSchematic(LitematicaSchematic schematic) {
-            if (renderer == null) {
-                renderer = new SchematicPreviewRenderer(mc);
+            try {
+                if (renderer == null) {
+                    renderer = new SchematicPreviewRenderer(mc);
+                }
+                renderer.setup(schematic);
+                schematicNew = true;
+            } catch (Exception e) {
+                SchematicPreview.LOGGER.error("Failed to initialize schematic preview renderer", e);
+                if(renderer != null) {
+                    renderer.close();
+                    renderer = null;
+                }
             }
-            renderer.setup(schematic);
-            schematicNew = true;
         }
 
         private boolean isBuildingTerrainOrStart() {
-            return renderer.isBuildingTerrain();
+            return renderer != null && renderer.isBuildingTerrain();
         }
 
         private boolean needsReRender() {
-            return schematicNew || !pos.equals(lastRenderPos) || !rot.equals(lastRenderRot) || renderer.getBuiltChunksCount() != lastChunksBuilt;
+            return schematicNew || !pos.equals(lastRenderPos) || !rot.equals(lastRenderRot) || (renderer != null && renderer.getBuiltChunksCount() != lastChunksBuilt);
         }
 
         private void render(RenderTarget framebuffer, float tickDelta) {
+            if(renderer == null) return;
             schematicNew = false;
-
             if (isBuildingTerrainOrStart()) {
                 return;
             }
-
             lastChunksBuilt = renderer.getBuiltChunksCount();
             lastRenderRot.set(Mth.lerp(tickDelta, prevRot.x, rot.x), Mth.rotLerp(tickDelta, prevRot.y, rot.y));
             lastRenderPos.set(
@@ -423,7 +427,6 @@ public class SchematicPreviewWidget extends WidgetBase {
                     Mth.lerp(tickDelta, prevPos.y, pos.y),
                     Mth.lerp(tickDelta, prevPos.z, pos.z)
             );
-
             Matrix4fStack modelViewStack = RenderSystem.getModelViewStack();
             modelViewStack.pushMatrix();
             modelViewStack.set(new Matrix4f().rotation(rotation.rotationYXZ(
@@ -461,7 +464,6 @@ public class SchematicPreviewWidget extends WidgetBase {
                 RenderSystem.getDevice().createCommandEncoder().writeToBuffer(globalUniform.slice(), byteBuffer);
             }
             RenderSystem.setGlobalSettingsUniform(globalUniform);
-
             // Draw layers
             cameraRenderState.initialized = true;
             cameraRenderState.orientation = rotation;
@@ -473,7 +475,6 @@ public class SchematicPreviewWidget extends WidgetBase {
             if (SchematicPreviewConfigs.RENDER_TILE.getBooleanValue()) {
                 renderer.renderBlockEntities(new PoseStack(), tickDelta);
             }
-
             RenderSystem.setGlobalSettingsUniform(previousGlobalUniform);
             RenderSystem.restoreProjectionMatrix();
             modelViewStack.popMatrix();
@@ -493,7 +494,5 @@ public class SchematicPreviewWidget extends WidgetBase {
                 globalUniform = null;
             }
         }
-
     }
-
 }
